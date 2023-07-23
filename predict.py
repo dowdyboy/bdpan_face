@@ -14,7 +14,7 @@ import numpy as np
 assert len(sys.argv) == 3
 src_image_dir = sys.argv[1]
 save_dir = sys.argv[2]
-chk_path = 'checkpoints/v2/chk_best_step_1457500/model_0.pdparams'
+chk_path = 'checkpoints/v2/chk_best_step_1814500/model_0.pdparams'
 
 
 def load_image(filepath):

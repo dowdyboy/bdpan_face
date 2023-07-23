@@ -1,6 +1,6 @@
 import paddle
 from bdpan_face.v2.model import STRAIDR
-from bdpan_face.dataset import FaceDataset
+from bdpan_face.v2.dataset import FaceDataset
 import numpy
 from PIL import Image
 import cv2
@@ -37,5 +37,11 @@ if __name__ == '__main__':
     #     y = model(x)
     # paddle.save(model.state_dict(), 'tmp.pdparams')
 
+    ds = FaceDataset(r'F:\BaiduNetdiskDownload\bdface_train_datasets',
+                     is_to_tensor=False,
+                     is_train=True,
+                     mosic_p=1.0,)
+    for i in range(len(ds)):
+        print(ds[i][0].shape, ds[i][1].shape)
 
     print()

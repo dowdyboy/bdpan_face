@@ -5,6 +5,8 @@ import paddle.vision.transforms.functional as F
 import os
 import cv2
 import random
+import numpy as np
+from PIL import Image
 
 
 def load_image(filepath):
@@ -37,6 +39,52 @@ class PairedRandomHorizontalFlip(T.RandomHorizontalFlip):
         return image
 
 
+class PairedMosaic():
+
+    def __init__(self, prob=0.0, split_range=[0.25, 0.75], image_path_list=[], ):
+        super().__init__()
+        self.prob = prob
+        self.split_range = split_range
+        self.image_path_list = image_path_list
+        self.image_index_list = list(range(len(self.image_path_list)))
+        self.params = dict()
+
+    def _get_params(self, inputs):
+        params = {}
+        params['mosic'] = random.random() < self.prob
+        if params['mosic']:
+            params['split_x'] = random.uniform(self.split_range[0], self.split_range[1])
+            params['split_y'] = random.uniform(self.split_range[0], self.split_range[1])
+            params['select_mosic_image_path'] = list(np.random.choice(self.image_index_list, 3, ))
+        return params
+
+    def _apply_image(self, image, image_gt):
+        if self.params['mosic']:
+            h, w, _ = image.shape
+            split_x = int(w * self.params['split_x'])
+            split_y = int(h * self.params['split_y'])
+            image_x_list = [load_image(self.image_path_list[idx][0]) for idx in self.params['select_mosic_image_path']]
+            image_gt_list = [load_image(self.image_path_list[idx][1]) for idx in self.params['select_mosic_image_path']]
+            res_image = np.zeros((h, w, 3), dtype=np.uint8)
+            res_gt = np.zeros((h, w, 3), dtype=np.uint8)
+            res_image[:split_y, :split_x, :] = image[:split_y, :split_x, :]
+            res_gt[:split_y, :split_x, :] = image_gt[:split_y, :split_x, :]
+            res_image[:split_y, split_x:, :] = image_x_list[0][:split_y, split_x:, :]
+            res_gt[:split_y, split_x:, :] = image_gt_list[0][:split_y, split_x:, :]
+            res_image[split_y:, :split_x, :] = image_x_list[1][split_y:, :split_x, :]
+            res_gt[split_y:, :split_x, :] = image_gt_list[1][split_y:, :split_x, :]
+            res_image[split_y:, split_x:, :] = image_x_list[2][split_y:, split_x:, :]
+            res_gt[split_y:, split_x:, :] = image_gt_list[2][split_y:, split_x:, :]
+            return res_image, res_gt
+        return image, image_gt
+
+    def __call__(self, img_pair):
+        image, image_gt = img_pair
+        self.params = self._get_params(img_pair)
+        image, image_gt = self._apply_image(image, image_gt)
+        return image, image_gt
+
+
 class FaceDataset(Dataset):
 
     def __init__(self, root_dir,
@@ -44,7 +92,8 @@ class FaceDataset(Dataset):
                  use_cache=False,
                  is_train=True,
                  rate=1.0,
-                 h_flip_p=0.5):
+                 h_flip_p=0.5,
+                 mosic_p=0.0, ):
         super(FaceDataset, self).__init__()
         self.root_dir = root_dir
         self.is_to_tensor = is_to_tensor
@@ -55,9 +104,10 @@ class FaceDataset(Dataset):
         self.image_cache = dict()
         self.to_tensor = T.ToTensor()
 
-        self.random_hflip = PairedRandomHorizontalFlip(prob=h_flip_p, keys=['image', 'image'], )
-
         self._init_image_path()
+
+        self.random_hflip = PairedRandomHorizontalFlip(prob=h_flip_p, keys=['image', 'image'], )
+        self.mosaic = PairedMosaic(prob=mosic_p, image_path_list=self.image_path_list, )
 
     def _init_image_path(self):
         x_dir = os.path.join(self.root_dir, 'image')
@@ -87,6 +137,7 @@ class FaceDataset(Dataset):
             return load_image(filepath)
 
     def _apply_aug(self, x, gt):
+        x, gt = self.mosaic((x, gt))
         x, gt = self.random_hflip((x, gt))
         return x, gt
 
