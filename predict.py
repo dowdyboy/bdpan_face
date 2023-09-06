@@ -7,6 +7,15 @@ import paddle.vision.transforms as T
 # from bdpan_face.model import STRAIDR, STRAIDRLowPixel
 # v2
 from bdpan_face.v2.model import STRAIDR
+# v3
+# from bdpan_face.v3.model import STRAIDR
+# v4
+# from bdpan_face.v4.model import STRAIDR
+# v5
+# from bdpan_face.v5.model import NAFNet
+# v6
+# from bdpan_face.v4.model import STRAIDR
+
 import sys
 import numpy as np
 
@@ -14,7 +23,7 @@ import numpy as np
 assert len(sys.argv) == 3
 src_image_dir = sys.argv[1]
 save_dir = sys.argv[2]
-chk_path = 'checkpoints/v2/chk_best_step_1814500/model_0.pdparams'
+chk_path = 'checkpoints/best/chk_best_step_2283000/model_0.pdparams'
 
 
 def load_image(filepath):
@@ -72,6 +81,12 @@ def build_model():
     # lowpix
     # model = STRAIDRLowPixel(unet_num_c=[16, 32, 64, 64, 128],
     #                         fine_num_c=[32], )
+    # nafnet
+    # model = NAFNet(img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[1, 1, 1, 12], dec_blk_nums=[1, 1, 1, 1])
+    # v6
+    # model = STRAIDR(unet_num_c=[32, 64, 64, 64, 128],
+    #                 fine_num_c=[128], )
+
     model.load_dict(paddle.load(chk_path))
     model.eval()
     return model

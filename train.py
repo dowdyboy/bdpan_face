@@ -4,19 +4,21 @@ import paddle
 import numpy as np
 import random
 from PIL import Image
-from bdpan_face.model import STRAIDR
-from bdpan_face.dataset import FaceDataset
+from bdpan_face.v2.model import STRAIDR
+from bdpan_face.v2.dataset import FaceDataset
 from bdpan_face.optim import CosineAnnealingRestartLR
 from paddle.io import DataLoader
 import dowdyboy_lib.log as logger
 from dowdyboy_lib.paddle.model_util import save_checkpoint, save_checkpoint_unique
 from bdpan_face.psnr_ssim import calculate_psnr, calculate_ssim
 from bdpan_face.init import init_model
+import paddle.nn.functional as F
 
 
 parser = argparse.ArgumentParser(description='train shuiyin multi scale image')
 # data config
 parser.add_argument('--data-dir', type=str, required=True, help='train data dir')
+parser.add_argument('--ms', type=int, nargs='+', default=[512, 640, 768, 896, 0], help='multi scale crop')
 parser.add_argument('--num-workers', type=int, default=0, help='num workers')
 # optimizer config
 parser.add_argument('--lr', type=float, default=2e-4, help='lr')
@@ -54,9 +56,87 @@ def set_seed(seed):
     paddle.seed(seed)
 
 
+def do_random_crop(inputs, x_patch_size):
+    # x_patch_size = args.ms[random.randint(0, len(args.ms) - 1)]
+    in_x = inputs[0]
+    in_y = inputs[1]
+    # in_mask = inputs[2]
+    in_x = paddle.unsqueeze(in_x, axis=0)
+    in_y = paddle.unsqueeze(in_y, axis=0)
+    # in_mask = paddle.unsqueeze(in_mask, axis=0)
+
+    _, _, ori_h, ori_w = in_x[0].shape if isinstance(in_x, list) else in_x.shape
+    if ori_h < x_patch_size or ori_w < x_patch_size:
+        pre_pad_right = x_patch_size - ori_w if ori_w < x_patch_size else 0
+        pre_pad_bottom = x_patch_size - ori_h if ori_h < x_patch_size else 0
+        # in_x = paddle.vision.transforms.pad(in_x, (0, 0, pre_pad_right, pre_pad_bottom), padding_mode='reflect')
+        # in_y = paddle.vision.transforms.pad(in_y, (0, 0, pre_pad_right, pre_pad_bottom), padding_mode='reflect')
+        # in_mask = paddle.vision.transforms.pad(in_mask, (0, 0, pre_pad_right, pre_pad_bottom), padding_mode='reflect')
+        in_x = F.pad(in_x, (0, pre_pad_right, 0, pre_pad_bottom), value=1.)
+        in_y = F.pad(in_y, (0, pre_pad_right, 0, pre_pad_bottom), value=1.)
+        # in_mask = F.pad(in_mask, (0, pre_pad_right, 0, pre_pad_bottom), value=0.)
+
+    if isinstance(in_x, list):
+        # h_in_x, w_in_x, _ = in_x[0].shape
+        # h_in_y, w_in_y, _ = in_y[0].shape
+        # h_in_mask, w_in_mask, _ = in_mask[0].shape
+        raise NotImplementedError()
+    else:
+        _, _, h_in_x, w_in_x = in_x.shape
+        _, _, h_in_y, w_in_y = in_y.shape
+        # _, _, h_in_mask, w_in_mask = in_mask.shape
+
+    if h_in_y != h_in_x or w_in_y != w_in_x:
+        raise ValueError('x y size not match')
+    if h_in_x < x_patch_size or w_in_x < x_patch_size:
+        raise ValueError('too small size error')
+
+    # randomly choose top and left coordinates for lq patch
+    top = random.randint(0, h_in_x - x_patch_size)
+    left = random.randint(0, w_in_x - x_patch_size)
+
+    if isinstance(in_x, list):
+        # in_x = [
+        #     v[top:top + x_patch_size, left:left + x_patch_size, ...]
+        #     for v in in_x
+        # ]
+        # in_y = [
+        #     v[top:top + x_patch_size, left:left + x_patch_size, ...]
+        #     for v in in_y
+        # ]
+        raise NotImplementedError()
+    else:
+        in_x = in_x[..., top:top + x_patch_size, left:left + x_patch_size]
+        in_y = in_y[..., top:top + x_patch_size, left:left + x_patch_size]
+        # in_mask = in_mask[..., top:top + x_patch_size, left:left + x_patch_size]
+
+    # return in_x, in_y, in_mask
+    return in_x, in_y
+
+
+def merge_and_crop_bat(bat):
+    x_patch_size = args.ms[random.randint(0, len(args.ms) - 1)]
+    # bat_x, bat_y, bat_mask, bat_filename = [], [], [], []
+    bat_x, bat_y = [], []
+    for item in bat:
+        if x_patch_size != 0:
+            x, y = do_random_crop([item[0], item[1]], x_patch_size)
+        else:
+            x, y = paddle.unsqueeze(item[0], axis=0), paddle.unsqueeze(item[1], axis=0)
+        bat_x.append(x)
+        bat_y.append(y)
+        # bat_mask.append(m)
+        # bat_filename.append(item[3])
+    bat_x = paddle.concat(bat_x, axis=0)
+    bat_y = paddle.concat(bat_y, axis=0)
+    # bat_mask = paddle.concat(bat_mask, axis=0)
+    # return bat_x, bat_y, bat_mask, bat_filename
+    return bat_x, bat_y
+
+
 def build_model():
     model = STRAIDR(unet_num_c=[16, 32, 64, 64, 128],
-                    fine_num_c=[32])
+                    fine_num_c=[32],)
     init_model(model)
     return model
 
@@ -92,9 +172,9 @@ def build_optimizer(model):
 
 
 def build_data():
-    train_dataset = FaceDataset(root_dir=args.data_dir, is_train=True, rate=0.99, h_flip_p=0.5)
+    train_dataset = FaceDataset(root_dir=args.data_dir, is_train=True, rate=0.99,)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size,
-                              shuffle=True, num_workers=args.num_workers, drop_last=True, )
+                              shuffle=True, num_workers=args.num_workers, drop_last=True, collate_fn=merge_and_crop_bat)
     val_dataset = FaceDataset(root_dir=args.data_dir, is_train=False, rate=0.99)
     val_loader = DataLoader(val_dataset, batch_size=1,
                             shuffle=False, num_workers=args.num_workers, drop_last=False, )
@@ -155,7 +235,7 @@ if __name__ == '__main__':
             logger.log(f'step {step} loss : {loss.item()}, lr : {optimizer.get_lr()}')
 
         if step % args.save_interval == 0:
-            save_checkpoint(step, checkpoint_dir, [model], [optimizer], max_keep_num=100)
+            save_checkpoint(step, checkpoint_dir, [model], [optimizer], max_keep_num=20)
 
         if step % args.val_interval == 0:
             psnr_list = []

@@ -6,6 +6,9 @@ import numpy as np
 import paddle
 import paddle.nn as nn
 
+from .v4.model import WithBias_LayerNorm
+from .v5.model import WithBias_LayerNorm as WithBias_LayerNorm_v5
+from .v5.model import BiasFree_LayerNorm as BiasFree_LayerNorm_v5
 
 def trunc_normal_(tensor, mean=0., std=1., a=-2., b=2.):
     initializer = nn.initializer.TruncatedNormal(mean=mean, std=std)
@@ -336,7 +339,7 @@ def init_model(model):
             constant_(m.bias, 0)
             constant_(m.weight, 1.0)
         elif hasattr(m, 'weight') and (not isinstance(
-                m, (nn.BatchNorm, nn.BatchNorm2D))):
+                m, (nn.BatchNorm, nn.BatchNorm2D, WithBias_LayerNorm, WithBias_LayerNorm_v5, BiasFree_LayerNorm_v5))):
             kaiming_uniform_(m.weight, a=math.sqrt(5))
             if m.bias is not None:
                 fan_in, _ = _calculate_fan_in_and_fan_out(m.weight)
